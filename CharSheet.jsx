@@ -2,9 +2,9 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { apiFetch } from "./useAuth.jsx";
 import { useToast } from "./useToast.jsx";
 import { useRouter } from "./useRouter.jsx";
-import { InlineField, InlineSelect, mod, fmt, clamp, STATS, STAT_NAMES, SKILLS } from "../components/UI.jsx";
+import { InlineField, InlineSelect, mod, fmt, clamp, STATS, STAT_NAMES, SKILLS } from "./UI.jsx";
 import DiceRoller from "./DiceRoller.jsx";
-import { SPELLS_DATA, CLASS_PROGRESSION, ENCYCLOPEDIA_DATA, RACIAL_BONUSES, RACIAL_SPELLS } from "../data/encyclopedia-data.js";
+import { SPELLS_DATA, CLASS_PROGRESSION, ENCYCLOPEDIA_DATA, RACIAL_BONUSES, RACIAL_SPELLS } from "./encyclopedia-data.js";
 
 const CLASS_NAMES = ["Bárbaro","Bardo","Brujo","Clérigo","Druida","Explorador","Guerrero","Hechicero","Mago","Monje","Paladín","Pícaro"];
 const RACE_NAMES = ["Enano","Elfo","Mediano","Humano","Dracónido","Gnomo","Semielfo","Semiorco","Tiefling"];
