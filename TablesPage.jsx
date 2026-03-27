@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { apiFetch } from "../hooks/useAuth.jsx";
-import { useToast } from "../hooks/useToast.jsx";
+import { apiFetch } from "./useAuth.jsx";
+import { useToast } from "./useToast.jsx";
 
 // ══════════════════════════════════════
 //  DICE HELPERS
