@@ -297,3 +297,84 @@ body{background:var(--bg);color:var(--on);font-family:'Crimson Text',serif}
 
 /* ═══ RESPONSIVE ═══ */
 @media(max-width:480px){.stats-row{grid-template-columns:repeat(3,1fr)}.ss-grid{grid-template-columns:1fr}.id-grid{grid-template-columns:1fr}.dice-grid{grid-template-columns:repeat(4,1fr)}}
+
+/* ═══ COMBAT PHASES ═══ */
+.combat-action-card{border-left:3px solid var(--primary);background:var(--surface-dim)}
+.combat-hint{font-family:Manrope,sans-serif;font-size:12px;color:var(--on-dim);margin-bottom:10px}
+.combat-waiting{text-align:center;padding:24px}
+.waiting-icon{font-size:32px;margin-bottom:8px}
+.waiting-text{font-family:Manrope,sans-serif;font-size:13px;color:var(--on-muted)}
+.target-btn{width:100%;padding:12px;background:var(--surface-lo);border:1px solid var(--outline);color:var(--on);font-family:'Crimson Text',serif;font-size:14px;cursor:pointer;margin-bottom:6px;text-align:left;transition:all .2s}
+.target-btn:hover{border-color:var(--primary);background:var(--surface-hi)}
+.crit-label{color:var(--green);font-weight:600}
+.weapon-select{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px}
+.weapon-btn{padding:6px 10px;background:var(--surface-lo);border:1px solid var(--outline);color:var(--on);font-family:Manrope,sans-serif;font-size:10px;cursor:pointer;transition:all .2s}
+.weapon-btn.active{border-color:var(--primary);background:var(--primary-dim);color:var(--primary-bright)}
+.weapon-info{display:flex;justify-content:space-between;padding:6px 8px;background:var(--surface-lo);margin-bottom:8px}
+.weapon-name{font-family:Cinzel,serif;font-size:13px;font-weight:600}
+.weapon-stats{font-family:Manrope,sans-serif;font-size:11px;color:var(--primary)}
+.mt-sm{margin-top:6px}
+
+/* ═══ ROLL DISPLAY (overlay) ═══ */
+.roll-display{position:fixed;inset:0;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center;z-index:120;cursor:pointer}
+.roll-display-inner{text-align:center;padding:24px;animation:pop .3s ease}
+.roll-display-label{font-family:Cinzel,serif;font-size:14px;color:var(--on-muted);margin-bottom:4px}
+.roll-display-total{font-family:Cinzel,serif;font-size:64px;font-weight:800;color:var(--primary-bright)}
+.roll-display-total.crit{color:var(--green)}
+.roll-display-total.fail{color:var(--red)}
+.roll-display-adv{font-family:Manrope,sans-serif;font-size:13px;color:var(--on-dim);margin-top:4px}
+.adv-die.used{font-weight:800;color:var(--on)}.adv-die.discarded{opacity:.4}
+.adv-label{font-size:10px;color:var(--on-muted)}
+.roll-display-detail{font-family:Manrope,sans-serif;font-size:13px;color:var(--on-dim);margin-top:4px}
+.roll-display-sub{font-family:'Crimson Text',serif;font-size:14px;color:var(--on-dim);margin-top:6px}
+.roll-display-tap{font-family:Manrope,sans-serif;font-size:9px;color:var(--on-muted);margin-top:12px;text-transform:uppercase;letter-spacing:2px}
+.roll-tag{font-family:Cinzel,serif;font-size:16px;font-weight:800;margin-top:6px}
+.roll-tag.crit{color:var(--green)}.roll-tag.fail{color:var(--red)}
+
+/* ═══ COMBAT DICE (mini roller) ═══ */
+.combat-dice{margin-top:8px}
+.dice-grid-sm{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-bottom:8px}
+.dice-btn-sm{padding:6px 2px;background:var(--surface-lo);border:1px solid transparent;color:var(--on-muted);font-family:Manrope,sans-serif;font-size:10px;cursor:pointer;text-align:center;transition:all .15s}
+.dice-btn-sm.active{border-color:var(--primary);color:var(--primary);background:var(--surface-dim)}
+.dice-controls-sm{display:flex;gap:12px;justify-content:center;margin-bottom:8px}
+.dice-mode-row{display:flex;gap:4px;margin-bottom:8px;justify-content:center}
+.dice-mode-btn{padding:6px 10px;background:var(--surface-lo);border:1px solid var(--outline);color:var(--on-muted);font-family:Manrope,sans-serif;font-size:10px;cursor:pointer;transition:all .2s}
+.dice-mode-btn.active{border-color:var(--primary);background:var(--primary-dim);color:var(--primary-bright)}
+
+/* ═══ COMBAT LOG (slide panel) ═══ */
+.log-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:130}
+.log-panel{position:fixed;top:0;right:-320px;width:300px;height:100%;background:var(--surface);z-index:140;transition:right .3s ease;display:flex;flex-direction:column;box-shadow:-4px 0 16px rgba(0,0,0,.5)}
+.log-panel.open{right:0}
+.log-header{display:flex;justify-content:space-between;align-items:center;padding:12px;border-bottom:1px solid var(--outline);font-family:Cinzel,serif;font-size:13px;color:var(--primary)}
+.log-close{background:none;border:none;color:var(--on-muted);font-size:16px;cursor:pointer}
+.log-entries{flex:1;overflow-y:auto;padding:8px}
+.log-empty{text-align:center;padding:20px;color:var(--on-muted);font-style:italic;font-size:12px}
+.log-entry{padding:6px 8px;margin-bottom:4px;background:var(--surface-lo);font-size:12px}
+.log-entry.crit{border-left:3px solid var(--green)}.log-entry.fail{border-left:3px solid var(--red)}
+.log-entry-header{display:flex;justify-content:space-between;margin-bottom:2px}
+.log-who{font-family:Cinzel,serif;font-size:11px;font-weight:600;color:var(--primary)}
+.log-time{font-family:Manrope,sans-serif;font-size:9px;color:var(--on-muted)}
+.log-entry-body{color:var(--on-dim);line-height:1.3}
+.log-entry-detail{font-family:Manrope,sans-serif;font-size:10px;color:var(--on-muted);margin-top:2px}
+.log-toggle-btn{background:none;border:none;font-size:20px;cursor:pointer;padding:4px}
+
+/* ═══ ROOM LAYOUT ═══ */
+.room-page{display:flex;flex-direction:column;min-height:calc(100vh - 64px)}
+.room-header{display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--surface);border-bottom:1px solid var(--outline);position:sticky;top:0;z-index:10}
+.room-header-center{flex:1;text-align:center}
+.room-title{font-family:Cinzel,serif;font-size:16px;font-weight:800;color:var(--primary-bright);margin:0}
+.room-body{flex:1;padding:12px;overflow-y:auto}
+.player-row.active-turn{background:var(--primary-dim);padding:6px 8px}
+.player-info{flex:1}.player-combat-info{display:flex;align-items:center;gap:6px}
+
+/* ═══ CHAT ═══ */
+.room-chat{border-top:1px solid var(--outline);background:var(--surface);display:flex;flex-direction:column;max-height:200px}
+.chat-history{flex:1;overflow-y:auto;padding:8px;min-height:80px}
+.chat-msg{margin-bottom:6px}
+.chat-who{font-family:Cinzel,serif;font-size:11px;font-weight:600;color:var(--primary);margin-right:4px}
+.chat-time{font-family:Manrope,sans-serif;font-size:8px;color:var(--on-muted)}
+.chat-text{font-size:13px;color:var(--on-dim);margin-top:1px}
+.chat-input-row{display:flex;border-top:1px solid var(--outline)}
+.chat-input{flex:1;padding:10px;background:var(--surface-dim);border:none;color:var(--on);font-family:'Crimson Text',serif;font-size:14px;outline:none}
+.chat-send{padding:10px 16px;background:var(--primary-dim);border:none;color:var(--primary-bright);font-size:14px;cursor:pointer;transition:background .2s}
+.chat-send:hover{background:var(--primary)}
