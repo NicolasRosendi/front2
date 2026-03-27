@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { apiFetch } from "../hooks/useAuth.jsx";
-import { useToast } from "../hooks/useToast.jsx";
-import { useRouter } from "../hooks/useRouter.jsx";
+import { apiFetch } from "./useAuth.jsx";
+import { useToast } from "./useToast.jsx";
+import { useRouter } from "./useRouter.jsx";
 import { InlineField, InlineSelect, mod, fmt, clamp, STATS, STAT_NAMES, SKILLS } from "../components/UI.jsx";
-import DiceRoller from "../components/DiceRoller.jsx";
+import DiceRoller from "./DiceRoller.jsx";
 import { SPELLS_DATA, CLASS_PROGRESSION, ENCYCLOPEDIA_DATA, RACIAL_BONUSES, RACIAL_SPELLS } from "../data/encyclopedia-data.js";
 
 const CLASS_NAMES = ["Bárbaro","Bardo","Brujo","Clérigo","Druida","Explorador","Guerrero","Hechicero","Mago","Monje","Paladín","Pícaro"];
