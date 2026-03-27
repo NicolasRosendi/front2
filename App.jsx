@@ -463,14 +463,51 @@ function CharacterSheet() {
 
   const setField = (key, val) => setFields(prev => ({ ...prev, [key]: val }));
 
-  // Auto-save debounce
-  const triggerSave = useCallback(() => {
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => doSave(), 2000);
-  }, [charId]);
+  // Ref to always have current state for save
+  const stateRef = useRef({});
+  useEffect(() => {
+    stateRef.current = { fields, stats, hp, hpMax, hpTemp, profBonus, saveProf, skillProf, skillExpertise, attacks, inventory, spells, shieldBonus, deathSaves, inspiration, spellAbilityKey };
+  });
 
-  // Trigger save on any state change
-  useEffect(() => { if (charId) triggerSave(); }, [fields, stats, hp, hpMax, hpTemp, profBonus, saveProf, skillProf, skillExpertise, attacks, inventory, spells, shieldBonus, deathSaves, inspiration]);
+  // Auto-save debounce
+  const charIdRef = useRef(charId);
+  useEffect(() => { charIdRef.current = charId; }, [charId]);
+
+  const savingRef = useRef(false);
+  const doSave = useCallback(async () => {
+    const id = charIdRef.current;
+    if (!id || savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      const s = stateRef.current;
+      await apiFetch("/characters/" + id, {
+        method: "PUT",
+        body: JSON.stringify({
+          name: s.fields.charName || "Sin nombre",
+          data: {
+            textFields: s.fields, stats: s.stats, hpCurr: s.hp, hpMax: s.hpMax, hpTemp: s.hpTemp,
+            profBonus: s.profBonus, savingThrowProf: s.saveProf, skillProf: s.skillProf,
+            skillExpertise: s.skillExpertise, attacks: s.attacks, inventory: s.inventory,
+            spells: s.spells, shieldBonus: s.shieldBonus, deathSaves: s.deathSaves,
+            inspiration: s.inspiration, spellAbilityKey: s.spellAbilityKey,
+            hasShield: s.shieldBonus > 0,
+          }
+        })
+      });
+    } catch (e) { console.error("Save failed:", e); }
+    savingRef.current = false;
+    setSaving(false);
+  }, []);
+
+  // Trigger save on any state change (skip first render / load)
+  const isLoaded = useRef(false);
+  useEffect(() => {
+    if (!charId) return;
+    if (!isLoaded.current) { isLoaded.current = true; return; }
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(doSave, 2000);
+  }, [fields, stats, hp, hpMax, hpTemp, profBonus, saveProf, skillProf, skillExpertise, attacks, inventory, spells, shieldBonus, deathSaves, inspiration, charId]);
 
   // Load characters
   useEffect(() => {
@@ -484,6 +521,7 @@ function CharacterSheet() {
 
   const loadChar = async (id) => {
     setLoading(true);
+    isLoaded.current = false;
     try {
       const d = await apiFetch("/characters/" + id);
       const c = d.character;
@@ -515,26 +553,6 @@ function CharacterSheet() {
       setSpellAbilityKey(data.spellAbilityKey || "int");
     } catch (e) { console.error(e); }
     setLoading(false);
-  };
-
-  const doSave = async () => {
-    if (!charId) return;
-    setSaving(true);
-    try {
-      await apiFetch("/characters/" + charId, {
-        method: "PUT",
-        body: JSON.stringify({
-          name: fields.charName || "Sin nombre",
-          data: {
-            textFields: fields, stats, hpCurr: hp, hpMax, hpTemp, profBonus,
-            savingThrowProf: saveProf, skillProf, skillExpertise,
-            attacks, inventory, spells, shieldBonus, deathSaves, inspiration, spellAbilityKey,
-            hasShield: shieldBonus > 0,
-          }
-        })
-      });
-    } catch (e) { console.error("Save failed:", e); }
-    setSaving(false);
   };
 
   const createChar = async () => {
@@ -935,10 +953,19 @@ function TablesPage({ onOpenCombat }) {
       if (d.table.status === "combat" && d.combat?.status === "active") {
         onOpenCombat(d);
       } else {
-        setRoomData(d);
+        setRoomData({ ...d, tableId });
         startRoomPolling(tableId);
       }
-    } catch (e) { alert(e.message); }
+    } catch (e) {
+      // If 403, may need to join first
+      if (e.message.includes("no estás") || e.message.includes("No estás")) {
+        const chars = await apiFetch("/characters");
+        setMyChars(chars.characters || []);
+        setCharSelectTable({ id: tableId, action: "join" });
+      } else {
+        alert(e.message);
+      }
+    }
   };
 
   const startRoomPolling = (tableId) => {
@@ -990,6 +1017,7 @@ function TablesPage({ onOpenCombat }) {
   if (roomData) {
     const t = roomData.table;
     const players = roomData.players || [];
+    const isOwner = t.is_owner || false;
     return (
       <div className="page-container">
         <button className="back-btn" onClick={leaveRoom}>← Mesas</button>
@@ -1004,8 +1032,8 @@ function TablesPage({ onOpenCombat }) {
             </div>
           ))}
         </div>
-        {t.is_owner && (
-          <button className="action-btn primary" onClick={() => startCombat(t.id)}>⚔ Iniciar Combate</button>
+        {isOwner && (
+          <button className="action-btn primary" style={{width:"100%",padding:14,marginTop:8}} onClick={() => startCombat(roomData.tableId || t.id)}>⚔ Iniciar Combate</button>
         )}
       </div>
     );
@@ -1363,32 +1391,50 @@ function EncyclopediaPage() {
 //  MAIN APP WITH NAVIGATION
 // ═══════════════════════════════════════
 // ═══════════════════════════════════════
-//  MAIN APP WITH NAVIGATION
+//  HASH ROUTER
+// ═══════════════════════════════════════
+function useHashRoute() {
+  const [hash, setHash] = useState(window.location.hash || "#/ficha");
+  useEffect(() => {
+    const onHash = () => setHash(window.location.hash || "#/ficha");
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+  const navigate = (h) => { window.location.hash = h; };
+  return { hash, navigate };
+}
+
+// ═══════════════════════════════════════
+//  MAIN APP WITH HASH ROUTING
 // ═══════════════════════════════════════
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem("dnd_token"));
-  const [page, setPage] = useState("characters");
+  const { hash, navigate } = useHashRoute();
 
   const logout = () => { localStorage.removeItem("dnd_token"); setToken(null); };
 
-  if (!token) return <AuthScreen onAuth={setToken} />;
+  if (!token) return <AuthScreen onAuth={t => { setToken(t); navigate("#/ficha"); }} />;
+
+  const page = hash.startsWith("#/mesas") ? "tables"
+    : hash.startsWith("#/enciclopedia") ? "encyclopedia"
+    : "characters";
 
   return (
     <AuthCtx.Provider value={{ token }}>
       <div className="app-root">
         <div className="main-content">
           {page === "characters" && <CharacterSheet />}
-          {page === "tables" && <TablesPage onOpenCombat={(d) => { /* TODO: combat view */ }} />}
+          {page === "tables" && <TablesPage onOpenCombat={(d) => {}} />}
           {page === "encyclopedia" && <EncyclopediaPage />}
         </div>
         <nav className="bottom-nav">
-          <button className={"nav-btn" + (page === "characters" ? " active" : "")} onClick={() => setPage("characters")}>
+          <button className={"nav-btn" + (page === "characters" ? " active" : "")} onClick={() => navigate("#/ficha")}>
             <span className="nav-icon">📜</span><span className="nav-label">Ficha</span>
           </button>
-          <button className={"nav-btn" + (page === "tables" ? " active" : "")} onClick={() => setPage("tables")}>
+          <button className={"nav-btn" + (page === "tables" ? " active" : "")} onClick={() => navigate("#/mesas")}>
             <span className="nav-icon">⚔</span><span className="nav-label">Mesas</span>
           </button>
-          <button className={"nav-btn" + (page === "encyclopedia" ? " active" : "")} onClick={() => setPage("encyclopedia")}>
+          <button className={"nav-btn" + (page === "encyclopedia" ? " active" : "")} onClick={() => navigate("#/enciclopedia")}>
             <span className="nav-icon">📖</span><span className="nav-label">Enciclopedia</span>
           </button>
           <button className="nav-btn" onClick={logout}>
