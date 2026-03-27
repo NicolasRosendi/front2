@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
-import { apiFetch } from "../hooks/useAuth.jsx";
-import { useToast } from "../hooks/useToast.jsx";
-import { useRouter } from "../hooks/useRouter.jsx";
+import { apiFetch } from "./useAuth.jsx";
+import { useToast } from "./useToast.jsx";
+import { useRouter } from "./useRouter.jsx";
 
 export default function CharListPage() {
   const [chars, setChars] = useState([]);
