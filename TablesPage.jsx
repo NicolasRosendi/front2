@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
-import { apiFetch } from "../hooks/useAuth.jsx";
-import { useToast } from "../hooks/useToast.jsx";
+import { apiFetch } from "./useAuth.jsx";
+import { useToast } from "./useToast.jsx";
 
 export default function TablesPage() {
   const { toast, confirm } = useToast();
