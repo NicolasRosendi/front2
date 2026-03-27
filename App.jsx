@@ -1,11 +1,11 @@
-import { AuthProvider, useAuth } from "./hooks/useAuth.jsx";
-import { ToastProvider } from "./hooks/useToast.jsx";
-import { useRouter } from "./hooks/useRouter.jsx";
-import LoginPage from "./pages/LoginPage.jsx";
-import CharListPage from "./pages/CharListPage.jsx";
-import CharSheet from "./pages/CharSheet.jsx";
-import TablesPage from "./pages/TablesPage.jsx";
-import EncyclopediaPage from "./pages/EncyclopediaPage.jsx";
+import { AuthProvider, useAuth } from "./useAuth.jsx";
+import { ToastProvider } from "./useToast.jsx";
+import { useRouter } from "./useRouter.jsx";
+import LoginPage from "./LoginPage.jsx";
+import CharListPage from "./CharListPage.jsx";
+import CharSheet from "./CharSheet.jsx";
+import TablesPage from "./TablesPage.jsx";
+import EncyclopediaPage from "./EncyclopediaPage.jsx";
 
 function AppRouter() {
   const { token, logout } = useAuth();
