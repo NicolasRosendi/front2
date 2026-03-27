@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { SPELLS_DATA, CLASS_PROGRESSION, ENCYCLOPEDIA_DATA } from "../data/encyclopedia-data.js";
+import { SPELLS_DATA, CLASS_PROGRESSION, ENCYCLOPEDIA_DATA } from "./encyclopedia-data.js";
 
 const SCHOOL_COLORS = {"Abjuración":"#4a9eff","Adivinación":"#c8c8c8","Conjuración":"#ffcc44","Encantamiento":"#ff69b4","Evocación":"#ff6644","Ilusión":"#bf7fff","Nigromancia":"#66cc66","Transmutación":"#ff9933"};
 const CASTER_CLASSES = ["Bardo","Brujo","Clérigo","Druida","Explorador","Hechicero","Mago","Paladín"];
