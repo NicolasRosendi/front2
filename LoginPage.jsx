@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { apiFetch, useAuth } from "../hooks/useAuth.jsx";
+import { apiFetch, useAuth } from "./useAuth.jsx";
 
 export default function LoginPage() {
   const { login } = useAuth();
