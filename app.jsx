@@ -853,17 +853,545 @@ function AuthScreen({ onAuth }) {
 }
 
 // ═══════════════════════════════════════
-//  MAIN APP
+//  TABLES / MESAS
+// ═══════════════════════════════════════
+function TablesPage({ onOpenCombat }) {
+  const [myTables, setMyTables] = useState([]);
+  const [publicTables, setPublicTables] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newVis, setNewVis] = useState("public");
+  const [newPwd, setNewPwd] = useState("");
+  const [joinCode, setJoinCode] = useState("");
+  const [roomData, setRoomData] = useState(null);
+  const [charSelectTable, setCharSelectTable] = useState(null);
+  const [myChars, setMyChars] = useState([]);
+  const pollRef = useRef(null);
+
+  const load = async () => {
+    try {
+      const [mine, pub] = await Promise.all([apiFetch("/tables"), apiFetch("/tables/public")]);
+      setMyTables(mine.tables || []);
+      setPublicTables(pub.tables || []);
+    } catch (e) { console.error(e); }
+    setLoading(false);
+  };
+
+  useEffect(() => { load(); return () => { if (pollRef.current) clearInterval(pollRef.current); }; }, []);
+
+  const createTable = async () => {
+    if (!newName.trim()) return;
+    try {
+      const d = await apiFetch("/tables", { method: "POST", body: JSON.stringify({ name: newName, visibility: newVis, password: newVis === "private" ? newPwd : undefined }) });
+      setNewName(""); setCreating(false);
+      // Auto-join: need to select character
+      const chars = await apiFetch("/characters");
+      setMyChars(chars.characters || []);
+      setCharSelectTable({ id: d.tableId, action: "join" });
+      load();
+    } catch (e) { alert(e.message); }
+  };
+
+  const joinTable = async (tableId) => {
+    try {
+      const chars = await apiFetch("/characters");
+      setMyChars(chars.characters || []);
+      setCharSelectTable({ id: tableId, action: "join" });
+    } catch (e) { alert(e.message); }
+  };
+
+  const confirmJoin = async (charId) => {
+    if (!charSelectTable) return;
+    try {
+      await apiFetch("/tables/" + charSelectTable.id + "/join", { method: "POST", body: JSON.stringify({ character_id: charId }) });
+      setCharSelectTable(null);
+      load();
+      openRoom(charSelectTable.id);
+    } catch (e) { alert(e.message); }
+  };
+
+  const joinByCode = async () => {
+    if (!joinCode.trim()) return;
+    try {
+      const d = await apiFetch("/tables/join", { method: "POST", body: JSON.stringify({ code: joinCode.toUpperCase() }) });
+      setJoinCode("");
+      const chars = await apiFetch("/characters");
+      setMyChars(chars.characters || []);
+      setCharSelectTable({ id: d.tableId, action: "join" });
+      load();
+    } catch (e) { alert(e.message); }
+  };
+
+  const deleteTable = async (id) => {
+    if (!confirm("¿Borrar esta mesa?")) return;
+    try { await apiFetch("/tables/" + id, { method: "DELETE" }); load(); } catch (e) { alert(e.message); }
+  };
+
+  const openRoom = async (tableId) => {
+    try {
+      const d = await apiFetch("/tables/" + tableId);
+      if (d.table.status === "combat" && d.combat?.status === "active") {
+        onOpenCombat(d);
+      } else {
+        setRoomData(d);
+        startRoomPolling(tableId);
+      }
+    } catch (e) { alert(e.message); }
+  };
+
+  const startRoomPolling = (tableId) => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      try {
+        const d = await apiFetch("/tables/" + tableId);
+        if (d.table.status === "combat" && d.combat?.status === "active") {
+          clearInterval(pollRef.current); pollRef.current = null;
+          onOpenCombat(d);
+          setRoomData(null);
+        } else {
+          setRoomData(d);
+        }
+      } catch (e) { /* silence */ }
+    }, 3000);
+  };
+
+  const startCombat = async (tableId) => {
+    try {
+      await apiFetch("/tables/" + tableId + "/combat/start", { method: "POST" });
+      const d = await apiFetch("/tables/" + tableId);
+      onOpenCombat(d);
+      setRoomData(null);
+    } catch (e) { alert(e.message); }
+  };
+
+  const leaveRoom = () => {
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+    setRoomData(null);
+  };
+
+  // Character select modal
+  if (charSelectTable) {
+    return (
+      <div className="page-container">
+        <h2 className="page-title">Elegí tu Personaje</h2>
+        {myChars.map(c => (
+          <div key={c.id} className="char-card" onClick={() => confirmJoin(c.id)}>
+            <span className="char-card-name">{c.name}</span>
+          </div>
+        ))}
+        <button className="add-btn full" onClick={() => setCharSelectTable(null)}>Cancelar</button>
+      </div>
+    );
+  }
+
+  // Room view
+  if (roomData) {
+    const t = roomData.table;
+    const players = roomData.players || [];
+    return (
+      <div className="page-container">
+        <button className="back-btn" onClick={leaveRoom}>← Mesas</button>
+        <h2 className="page-title">{t.name}</h2>
+        <div className="room-code">Código: <strong>{t.code}</strong></div>
+        <div className="card">
+          <div className="section-title">Jugadores ({players.length})</div>
+          {players.map((p, i) => (
+            <div key={i} className="player-row">
+              <span className="player-name">{p.username}</span>
+              <span className="player-char">{p.character_name || "Sin personaje"}</span>
+            </div>
+          ))}
+        </div>
+        {t.is_owner && (
+          <button className="action-btn primary" onClick={() => startCombat(t.id)}>⚔ Iniciar Combate</button>
+        )}
+      </div>
+    );
+  }
+
+  if (loading) return <div className="loading">Cargando mesas...</div>;
+
+  return (
+    <div className="page-container">
+      <h2 className="page-title">Mesas</h2>
+
+      {/* My tables */}
+      <div className="section-title" style={{ padding: "0 0 8px" }}>Mis Mesas</div>
+      {myTables.length === 0 && <div className="empty-msg">No estás en ninguna mesa</div>}
+      {myTables.map(t => (
+        <div key={t.id} className="table-card">
+          <div className="table-card-top">
+            <span className="table-card-name">{t.name}</span>
+            <span className="table-card-code">{t.code}</span>
+          </div>
+          <div className="table-card-info">{t.player_count} jugador(es) · {t.is_owner ? "Dueño" : "Miembro"}</div>
+          <div className="table-card-actions">
+            <button className="action-btn" onClick={() => openRoom(t.id)}>Entrar</button>
+            {t.is_owner && <button className="action-btn danger" onClick={() => deleteTable(t.id)}>Borrar</button>}
+          </div>
+        </div>
+      ))}
+
+      {/* Create */}
+      {creating ? (
+        <div className="card" style={{ marginTop: 12 }}>
+          <div className="section-title">Nueva Mesa</div>
+          <input className="auth-input" placeholder="Nombre de la mesa" value={newName} onChange={e => setNewName(e.target.value)} />
+          <div style={{ display: "flex", gap: 4, marginBottom: 8 }}>
+            <button className={"tab-btn" + (newVis === "public" ? " active" : "")} onClick={() => setNewVis("public")}>Pública</button>
+            <button className={"tab-btn" + (newVis === "private" ? " active" : "")} onClick={() => setNewVis("private")}>Privada</button>
+          </div>
+          {newVis === "private" && <input className="auth-input" placeholder="Contraseña" type="password" value={newPwd} onChange={e => setNewPwd(e.target.value)} />}
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="action-btn primary" onClick={createTable}>Crear</button>
+            <button className="action-btn" onClick={() => setCreating(false)}>Cancelar</button>
+          </div>
+        </div>
+      ) : (
+        <button className="add-btn full" onClick={() => setCreating(true)} style={{ marginTop: 12 }}>+ Crear Mesa</button>
+      )}
+
+      {/* Join by code */}
+      <div className="card" style={{ marginTop: 12 }}>
+        <div className="section-title">Unirse por Código</div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input className="auth-input" placeholder="CÓDIGO" value={joinCode} onChange={e => setJoinCode(e.target.value.toUpperCase())}
+            style={{ flex: 1, textAlign: "center", letterSpacing: 4, fontFamily: "Cinzel, serif", fontSize: 18 }} />
+          <button className="action-btn primary" onClick={joinByCode}>Unirse</button>
+        </div>
+      </div>
+
+      {/* Public tables */}
+      <div className="section-title" style={{ padding: "16px 0 8px" }}>Mesas Públicas</div>
+      {publicTables.length === 0 && <div className="empty-msg">No hay mesas públicas</div>}
+      {publicTables.map(t => (
+        <div key={t.id} className="table-card">
+          <div className="table-card-top">
+            <span className="table-card-name">{t.name}</span>
+            <span className="table-card-code">{t.code}</span>
+          </div>
+          <div className="table-card-info">{t.player_count} jugador(es) · {t.owner_name}</div>
+          <button className="action-btn" onClick={() => joinTable(t.id)}>Unirse</button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════
+//  ENCYCLOPEDIA
+// ═══════════════════════════════════════
+const SCHOOL_COLORS = {
+  "Abjuración":"#4a9eff","Adivinación":"#c8c8c8","Conjuración":"#ffcc44","Encantamiento":"#ff69b4",
+  "Evocación":"#ff6644","Ilusión":"#bf7fff","Nigromancia":"#66cc66","Transmutación":"#ff9933"
+};
+
+function EncyclopediaPage() {
+  const [category, setCategory] = useState("spells");
+  const [search, setSearch] = useState("");
+  const [levelFilter, setLevelFilter] = useState("all");
+  const [classFilter, setClassFilter] = useState("all");
+  const [expanded, setExpanded] = useState(null);
+  const [classView, setClassView] = useState(null);
+  const [expandedFeature, setExpandedFeature] = useState(null);
+
+  const categories = [
+    { id: "spells", label: "Conjuros" }, { id: "classes", label: "Clases" },
+    { id: "races", label: "Razas" }, { id: "combat", label: "Combate" }, { id: "spellrules", label: "Magia" }
+  ];
+
+  const classNames = ["Bardo","Brujo","Clérigo","Druida","Explorador","Hechicero","Mago","Paladín"];
+
+  // Class full view
+  if (classView && typeof CLASS_PROGRESSION !== "undefined") {
+    const cls = CLASS_PROGRESSION.find(c => c.name === classView);
+    if (!cls) { setClassView(null); return null; }
+    return (
+      <div className="page-container">
+        <button className="back-btn" onClick={() => setClassView(null)}>← Clases</button>
+        <h2 className="page-title">{cls.name}</h2>
+        <div className="card">
+          <div className="enc-class-info">
+            <span>Dado de golpe: {cls.hit_die}</span> · <span>Stat principal: {cls.primary}</span>
+          </div>
+          {cls.armor && <div className="enc-detail">Armaduras: {cls.armor}</div>}
+          {cls.weapons && <div className="enc-detail">Armas: {cls.weapons}</div>}
+        </div>
+
+        {/* Subclasses */}
+        {cls.subclasses_detail && Object.keys(cls.subclasses_detail).length > 0 && (
+          <div className="card">
+            <div className="section-title">Subclases</div>
+            {Object.entries(cls.subclasses_detail).map(([name, sub]) => {
+              const isExp = expandedFeature === "sub:" + name;
+              return (
+                <div key={name} className="enc-subclass-block">
+                  <div className="enc-subclass-name" onClick={() => setExpandedFeature(isExp ? null : "sub:" + name)}>
+                    {name} {isExp ? "▾" : "▸"}
+                  </div>
+                  {isExp && (
+                    <div className="enc-subclass-content">
+                      <p className="enc-desc">{sub.description}</p>
+                      {sub.features && Object.entries(sub.features).sort((a,b) => +a[0] - +b[0]).map(([lvl, feat]) => (
+                        <div key={lvl} className="enc-sub-feat">
+                          <span className="enc-sub-feat-lvl">Nv{lvl}</span>
+                          <span className="enc-sub-feat-name">{feat.name}</span>
+                          <p className="enc-sub-feat-desc">{feat.desc}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Progression */}
+        <div className="card">
+          <div className="section-title">Progresión por Nivel</div>
+          {cls.progression.map(p => {
+            if (p.features.length === 0) return null;
+            return (
+              <div key={p.level} className="enc-level-row">
+                <div className="enc-level-num">{p.level}</div>
+                <div className="enc-level-prof">+{p.prof_bonus}</div>
+                <div className="enc-level-feats">
+                  {p.features.map((f, i) => {
+                    const baseName = f.replace(/\s*\(.*?\)\s*$/, "").trim();
+                    const detail = cls.features_detail?.[f] || cls.features_detail?.[baseName];
+                    if (detail) {
+                      const key = cls.name + ":" + f + ":" + p.level;
+                      const isExp = expandedFeature === key;
+                      return (
+                        <div key={i}>
+                          <span className="enc-tag clickable" onClick={() => setExpandedFeature(isExp ? null : key)}>
+                            {f} {isExp ? "▾" : "▸"}
+                          </span>
+                          {isExp && <div className="enc-feature-desc">{detail}</div>}
+                        </div>
+                      );
+                    }
+                    return <span key={i} className="enc-tag">{f}</span>;
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Spell slots table */}
+        {cls.spell_slots && (
+          <div className="card">
+            <div className="section-title">Espacios de Conjuro</div>
+            <div className="enc-slots-table">
+              <div className="enc-slots-header">
+                <span>Nv</span>
+                {Array.from({length: 9}, (_, i) => <span key={i}>{i+1}°</span>)}
+              </div>
+              {Object.entries(cls.spell_slots).filter(([k]) => +k <= 20).sort((a,b) => +a[0] - +b[0]).map(([lvl, slots]) => (
+                <div key={lvl} className="enc-slots-row">
+                  <span>{lvl}</span>
+                  {Array.isArray(slots)
+                    ? slots.map((s, i) => <span key={i} className={s > 0 ? "has-slots" : ""}>{s || "—"}</span>)
+                    : <span style={{gridColumn:"2/-1",fontSize:11}}>{slots.slots} espacios de nv{slots.level}</span>
+                  }
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="page-container">
+      <h2 className="page-title">Enciclopedia</h2>
+
+      {/* Category tabs */}
+      <div className="enc-cats">
+        {categories.map(c => (
+          <button key={c.id} className={"tab-btn" + (category === c.id ? " active" : "")}
+            onClick={() => { setCategory(c.id); setExpanded(null); setSearch(""); setLevelFilter("all"); setClassFilter("all"); }}>
+            {c.label}
+          </button>
+        ))}
+      </div>
+
+      {/* SPELLS */}
+      {category === "spells" && typeof SPELLS_DATA !== "undefined" && (
+        <>
+          <input className="enc-search" placeholder="Buscar conjuros..." value={search} onChange={e => setSearch(e.target.value)} />
+          <div className="enc-filters">
+            <select className="enc-filter-select" value={levelFilter} onChange={e => setLevelFilter(e.target.value === "all" ? "all" : +e.target.value)}>
+              <option value="all">Todos los niveles</option>
+              {Array.from({length:10},(_, i) => <option key={i} value={i}>{i === 0 ? "Trucos" : "Nivel " + i}</option>)}
+            </select>
+            <select className="enc-filter-select" value={classFilter} onChange={e => setClassFilter(e.target.value)}>
+              <option value="all">Todas las clases</option>
+              {classNames.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          {(() => {
+            const s = search.toLowerCase();
+            const filtered = SPELLS_DATA.filter(sp =>
+              (levelFilter === "all" || sp.level === levelFilter) &&
+              (classFilter === "all" || sp.classes.includes(classFilter)) &&
+              (!s || sp.name.toLowerCase().includes(s) || sp.school.toLowerCase().includes(s))
+            );
+            return (
+              <>
+                <div className="enc-count">{filtered.length} conjuro{filtered.length !== 1 ? "s" : ""}</div>
+                {filtered.map((sp, i) => {
+                  const isExp = expanded === sp.name;
+                  return (
+                    <div key={i} className="enc-spell-card" onClick={() => setExpanded(isExp ? null : sp.name)}>
+                      <div className="enc-spell-top">
+                        <span className="enc-spell-name">{sp.name}</span>
+                        <span className="enc-spell-level">{sp.level === 0 ? "Truco" : "Nv" + sp.level}</span>
+                      </div>
+                      <div className="enc-spell-meta">
+                        <span style={{color: SCHOOL_COLORS[sp.school] || "#999"}}>{sp.school}</span>
+                        {sp.ritual && <span className="enc-ritual-tag">RITUAL</span>}
+                        <span className="enc-spell-classes">{sp.classes.join(", ")}</span>
+                      </div>
+                      {isExp && (
+                        <div className="enc-spell-detail">
+                          <div className="enc-spell-props">
+                            <span>⏱ {sp.casting_time || "1 acción"}</span>
+                            <span>📏 {sp.range || "—"}</span>
+                            <span>⏳ {sp.duration || "—"}</span>
+                          </div>
+                          {sp.components && <div className="enc-spell-comp">Componentes: {sp.components}</div>}
+                          <p className="enc-spell-desc">{sp.description}</p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </>
+            );
+          })()}
+        </>
+      )}
+
+      {/* CLASSES */}
+      {category === "classes" && typeof CLASS_PROGRESSION !== "undefined" && (
+        <div className="enc-class-list">
+          {CLASS_PROGRESSION.map(cls => (
+            <div key={cls.name} className="enc-class-card" onClick={() => setClassView(cls.name)}>
+              <span className="enc-class-card-name">{cls.name}</span>
+              <span className="enc-class-card-info">{cls.hit_die} · {cls.primary}</span>
+              <span className="enc-class-card-arrow">▸</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* RACES */}
+      {category === "races" && typeof ENCYCLOPEDIA_DATA !== "undefined" && (
+        <div>
+          {ENCYCLOPEDIA_DATA.races.map(r => {
+            const isExp = expanded === "race:" + r.name;
+            return (
+              <div key={r.name} className="enc-race-card">
+                <div className="enc-race-top" onClick={() => setExpanded(isExp ? null : "race:" + r.name)}>
+                  <span className="enc-race-name">{r.name}</span>
+                  <span className="enc-race-info">{r.ability_increase} · {r.speed}</span>
+                  <span>{isExp ? "▾" : "▸"}</span>
+                </div>
+                {isExp && (
+                  <div className="enc-race-detail">
+                    {r.traits && Object.entries(r.traits).map(([name, desc]) => (
+                      <div key={name} className="enc-trait">
+                        <strong>{name}:</strong> {desc}
+                      </div>
+                    ))}
+                    {r.subraces && Object.keys(r.subraces).length > 0 && (
+                      <div className="enc-subraces">
+                        <strong>Subrazas:</strong>
+                        {Object.entries(r.subraces).map(([name, desc]) => (
+                          <div key={name} className="enc-subrace-item"><strong>{name}:</strong> {desc}</div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* COMBAT RULES */}
+      {category === "combat" && typeof ENCYCLOPEDIA_DATA !== "undefined" && (
+        <div>
+          {ENCYCLOPEDIA_DATA.combat_rules.map((rule, i) => {
+            const isExp = expanded === "rule:" + i;
+            return (
+              <div key={i} className="enc-rule-card" onClick={() => setExpanded(isExp ? null : "rule:" + i)}>
+                <div className="enc-rule-name">{rule.title} {isExp ? "▾" : "▸"}</div>
+                {isExp && <div className="enc-rule-content">{rule.content}</div>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* SPELL RULES */}
+      {category === "spellrules" && typeof ENCYCLOPEDIA_DATA !== "undefined" && (
+        <div>
+          {ENCYCLOPEDIA_DATA.spell_rules.map((rule, i) => {
+            const isExp = expanded === "srule:" + i;
+            return (
+              <div key={i} className="enc-rule-card" onClick={() => setExpanded(isExp ? null : "srule:" + i)}>
+                <div className="enc-rule-name">{rule.title} {isExp ? "▾" : "▸"}</div>
+                {isExp && <div className="enc-rule-content">{rule.content}</div>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════
+//  MAIN APP WITH NAVIGATION
 // ═══════════════════════════════════════
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem("dnd_token"));
+  const [page, setPage] = useState("characters"); // characters, tables, encyclopedia
+
+  const logout = () => { localStorage.removeItem("dnd_token"); setToken(null); };
 
   if (!token) return <AuthScreen onAuth={setToken} />;
 
   return (
     <AuthCtx.Provider value={{ token }}>
       <div className="app-root">
-        <CharacterSheet />
+        {/* Bottom nav */}
+        <div className="main-content">
+          {page === "characters" && <CharacterSheet />}
+          {page === "tables" && <TablesPage onOpenCombat={(d) => { /* TODO: combat view */ }} />}
+          {page === "encyclopedia" && <EncyclopediaPage />}
+        </div>
+        <nav className="bottom-nav">
+          <button className={"nav-btn" + (page === "characters" ? " active" : "")} onClick={() => setPage("characters")}>
+            <span className="nav-icon">📜</span><span className="nav-label">Ficha</span>
+          </button>
+          <button className={"nav-btn" + (page === "tables" ? " active" : "")} onClick={() => setPage("tables")}>
+            <span className="nav-icon">⚔</span><span className="nav-label">Mesas</span>
+          </button>
+          <button className={"nav-btn" + (page === "encyclopedia" ? " active" : "")} onClick={() => setPage("encyclopedia")}>
+            <span className="nav-icon">📖</span><span className="nav-label">Enciclopedia</span>
+          </button>
+          <button className="nav-btn" onClick={logout}>
+            <span className="nav-icon">🚪</span><span className="nav-label">Salir</span>
+          </button>
+        </nav>
       </div>
       <style>{`
 /* ═══════════════════════════════════════
@@ -1067,6 +1595,109 @@ export default function App() {
   .saves-skills-grid { grid-template-columns: 1fr; }
   .id-grid { grid-template-columns: 1fr; }
 }
+
+/* ── BOTTOM NAV ── */
+.main-content { padding-bottom: 64px; }
+.bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; display: flex; background: var(--surface); border-top: 1px solid var(--outline-variant); z-index: 100; max-width: 600px; margin: 0 auto; }
+.nav-btn { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 4px; background: none; border: none; color: var(--on-surface-muted); cursor: pointer; }
+.nav-btn.active { color: var(--primary); }
+.nav-icon { font-size: 18px; }
+.nav-label { font-family: 'Manrope', sans-serif; font-size: 9px; text-transform: uppercase; letter-spacing: 1px; }
+
+/* ── PAGES ── */
+.page-container { padding: 16px; }
+.empty-msg { text-align: center; padding: 16px; color: var(--on-surface-muted); font-style: italic; font-size: 13px; }
+
+/* ── TABLES ── */
+.table-card { background: var(--surface); padding: 12px; margin-bottom: 6px; }
+.table-card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+.table-card-name { font-family: 'Cinzel', serif; font-size: 14px; font-weight: 600; }
+.table-card-code { font-family: 'Manrope', sans-serif; font-size: 11px; color: var(--tertiary); letter-spacing: 2px; }
+.table-card-info { font-family: 'Manrope', sans-serif; font-size: 10px; color: var(--on-surface-muted); margin-bottom: 8px; }
+.table-card-actions { display: flex; gap: 6px; }
+.action-btn { padding: 8px 16px; background: var(--surface-container); border: none; color: var(--on-surface); font-family: 'Cinzel', serif; font-size: 11px; cursor: pointer; }
+.action-btn:hover { background: var(--surface-container-high); }
+.action-btn.primary { background: var(--primary-dim); color: var(--primary-bright); }
+.action-btn.danger { background: #3a1515; color: var(--red-bright); }
+.room-code { text-align: center; font-family: 'Manrope', sans-serif; font-size: 12px; color: var(--tertiary); margin-bottom: 12px; letter-spacing: 2px; }
+.player-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--outline-variant); }
+.player-name { font-family: 'Cinzel', serif; font-size: 13px; }
+.player-char { font-family: 'Crimson Text', serif; font-size: 12px; color: var(--on-surface-muted); }
+
+/* ── ENCYCLOPEDIA ── */
+.enc-cats { display: flex; overflow-x: auto; margin-bottom: 12px; gap: 0; }
+.enc-search { width: 100%; padding: 10px; background: var(--surface); border: none; border-bottom: 1px solid var(--outline-variant); color: var(--on-surface); font-family: 'Crimson Text', serif; font-size: 15px; outline: none; margin-bottom: 8px; }
+.enc-filters { display: flex; gap: 6px; margin-bottom: 10px; }
+.enc-filter-select { flex: 1; padding: 8px; background: var(--surface); border: none; border-bottom: 1px solid var(--outline-variant); color: var(--on-surface); font-family: 'Crimson Text', serif; font-size: 13px; outline: none; appearance: auto; }
+.enc-count { font-family: 'Manrope', sans-serif; font-size: 10px; color: var(--on-surface-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+
+/* Spell cards */
+.enc-spell-card { background: var(--surface); padding: 10px 12px; margin-bottom: 4px; cursor: pointer; }
+.enc-spell-card:hover { background: var(--surface-container); }
+.enc-spell-top { display: flex; justify-content: space-between; align-items: center; }
+.enc-spell-name { font-family: 'Cinzel', serif; font-size: 13px; font-weight: 600; }
+.enc-spell-level { font-family: 'Manrope', sans-serif; font-size: 9px; color: var(--on-surface-muted); padding: 2px 6px; background: var(--surface-container-low); }
+.enc-spell-meta { font-family: 'Manrope', sans-serif; font-size: 10px; display: flex; gap: 8px; margin-top: 2px; }
+.enc-ritual-tag { color: var(--tertiary); font-weight: 600; font-size: 9px; }
+.enc-spell-classes { color: var(--on-surface-muted); }
+.enc-spell-detail { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--outline-variant); }
+.enc-spell-props { display: flex; gap: 12px; font-size: 12px; color: var(--on-surface-dim); margin-bottom: 6px; }
+.enc-spell-comp { font-size: 11px; color: var(--on-surface-muted); margin-bottom: 6px; }
+.enc-spell-desc { font-size: 14px; line-height: 1.5; color: var(--on-surface-dim); white-space: pre-line; }
+
+/* Class cards */
+.enc-class-card { background: var(--surface); padding: 14px; margin-bottom: 4px; cursor: pointer; display: flex; align-items: center; gap: 10px; }
+.enc-class-card:hover { background: var(--surface-container); }
+.enc-class-card-name { font-family: 'Cinzel', serif; font-size: 15px; font-weight: 600; flex: 1; }
+.enc-class-card-info { font-family: 'Manrope', sans-serif; font-size: 10px; color: var(--on-surface-muted); }
+.enc-class-card-arrow { color: var(--primary); font-size: 14px; }
+.enc-class-info { font-family: 'Manrope', sans-serif; font-size: 11px; color: var(--on-surface-dim); margin-bottom: 6px; }
+.enc-detail { font-size: 12px; color: var(--on-surface-muted); margin-bottom: 2px; }
+
+/* Subclasses */
+.enc-subclass-block { margin-bottom: 4px; }
+.enc-subclass-name { font-family: 'Cinzel', serif; font-size: 13px; font-weight: 600; color: var(--primary); padding: 8px; cursor: pointer; background: var(--surface-container-low); }
+.enc-subclass-name:hover { background: var(--surface-container-high); }
+.enc-subclass-content { padding: 8px 12px; background: var(--surface-container-low); }
+.enc-desc { font-size: 13px; color: var(--on-surface-dim); margin-bottom: 8px; font-style: italic; }
+.enc-sub-feat { margin-bottom: 8px; padding: 6px; background: var(--surface-dim); }
+.enc-sub-feat-lvl { font-family: 'Manrope', sans-serif; font-size: 9px; color: var(--tertiary); font-weight: 600; margin-right: 6px; }
+.enc-sub-feat-name { font-family: 'Cinzel', serif; font-size: 12px; font-weight: 600; }
+.enc-sub-feat-desc { font-size: 13px; color: var(--on-surface-dim); margin-top: 4px; line-height: 1.4; white-space: pre-line; }
+
+/* Progression */
+.enc-level-row { display: flex; align-items: flex-start; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--outline-variant); }
+.enc-level-num { font-family: 'Cinzel', serif; font-size: 18px; font-weight: 800; color: var(--primary); min-width: 28px; text-align: center; }
+.enc-level-prof { font-family: 'Manrope', sans-serif; font-size: 10px; color: var(--on-surface-muted); min-width: 24px; padding-top: 4px; }
+.enc-level-feats { flex: 1; display: flex; flex-wrap: wrap; gap: 4px; }
+.enc-tag { font-family: 'Manrope', sans-serif; font-size: 11px; padding: 4px 8px; background: var(--surface-container-low); color: var(--on-surface-dim); display: inline-block; }
+.enc-tag.clickable { cursor: pointer; color: var(--primary-bright); }
+.enc-tag.clickable:hover { background: var(--surface-container-high); }
+.enc-feature-desc { font-size: 13px; color: var(--on-surface-dim); padding: 8px; background: var(--surface-dim); margin: 4px 0; line-height: 1.5; white-space: pre-line; width: 100%; }
+
+/* Spell slots table */
+.enc-slots-table { font-family: 'Manrope', sans-serif; font-size: 10px; overflow-x: auto; }
+.enc-slots-header, .enc-slots-row { display: grid; grid-template-columns: 30px repeat(9, 1fr); gap: 2px; padding: 3px 0; }
+.enc-slots-header { color: var(--primary); font-weight: 600; border-bottom: 1px solid var(--outline-variant); }
+.enc-slots-row { color: var(--on-surface-muted); border-bottom: 1px solid var(--outline-variant); }
+.enc-slots-row .has-slots { color: var(--on-surface); font-weight: 600; }
+
+/* Races */
+.enc-race-card { background: var(--surface); margin-bottom: 4px; }
+.enc-race-top { display: flex; align-items: center; gap: 8px; padding: 12px; cursor: pointer; }
+.enc-race-top:hover { background: var(--surface-container); }
+.enc-race-name { font-family: 'Cinzel', serif; font-size: 14px; font-weight: 600; flex: 1; }
+.enc-race-info { font-family: 'Manrope', sans-serif; font-size: 10px; color: var(--on-surface-muted); }
+.enc-race-detail { padding: 8px 12px; }
+.enc-trait { font-size: 13px; color: var(--on-surface-dim); margin-bottom: 6px; line-height: 1.4; }
+.enc-subraces { margin-top: 8px; }
+.enc-subrace-item { font-size: 13px; color: var(--on-surface-dim); margin-bottom: 4px; padding-left: 8px; border-left: 2px solid var(--tertiary); }
+
+/* Rules */
+.enc-rule-card { background: var(--surface); padding: 12px; margin-bottom: 4px; cursor: pointer; }
+.enc-rule-card:hover { background: var(--surface-container); }
+.enc-rule-name { font-family: 'Cinzel', serif; font-size: 13px; font-weight: 600; color: var(--primary); }
+.enc-rule-content { font-size: 14px; color: var(--on-surface-dim); margin-top: 8px; line-height: 1.5; white-space: pre-line; }
       `}</style>
     </AuthCtx.Provider>
   );
