@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { apiFetch } from "./useAuth.jsx";
-import { useToast } from "./useToast.jsx";
+import { apiFetch } from "../hooks/useAuth.jsx";
+import { useToast } from "../hooks/useToast.jsx";
 
 // ══════════════════════════════════════
 //  DICE HELPERS
@@ -223,7 +223,7 @@ export default function TablesPage() {
   // ── Obtener userId del token ──
   useEffect(() => {
     try {
-      const token = localStorage.getItem("token") || sessionStorage.getItem("token");
+      const token = localStorage.getItem("dnd_token");
       if (token) {
         const payload = JSON.parse(atob(token.split(".")[1]));
         setMyUserId(payload.id || payload.userId || payload.sub);
@@ -552,13 +552,51 @@ export default function TablesPage() {
     } catch (e) { toast(e.message, true); }
   };
 
-  // ── Chat ──
-  const sendChat = () => {
-    if (!chatMsg.trim()) return;
-    const myPlayer = roomData?.players?.find(p => p.user_id === myUserId);
-    const name = myPlayer?.username || "Vos";
-    setChatHistory(prev => [...prev, { who: name, text: chatMsg, time: new Date().toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" }) }]);
-    setChatMsg("");
+  // ── Chat (real-time via polling) ──
+  const lastChatId = useRef(0);
+
+  const pollChat = useCallback(async (tableId) => {
+    try {
+      const d = await apiFetch("/tables/" + tableId + "/chat?since=" + lastChatId.current);
+      if (d.messages && d.messages.length > 0) {
+        const newMsgs = d.messages.map(m => ({
+          who: m.username,
+          text: m.message,
+          time: new Date(m.created_at).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" }),
+          id: m.id
+        }));
+        lastChatId.current = d.messages[d.messages.length - 1].id;
+        setChatHistory(prev => {
+          const existingIds = new Set(prev.map(m => m.id));
+          const unique = newMsgs.filter(m => !existingIds.has(m.id));
+          return unique.length > 0 ? [...prev, ...unique] : prev;
+        });
+      }
+    } catch {}
+  }, []);
+
+  // Start chat polling when room is open
+  const chatPollRef = useRef(null);
+  useEffect(() => {
+    if (roomData?.tableId) {
+      lastChatId.current = 0;
+      pollChat(roomData.tableId);
+      if (chatPollRef.current) clearInterval(chatPollRef.current);
+      chatPollRef.current = setInterval(() => pollChat(roomData.tableId), 2500);
+    }
+    return () => { if (chatPollRef.current) clearInterval(chatPollRef.current); };
+  }, [roomData?.tableId]);
+
+  const sendChat = async () => {
+    if (!chatMsg.trim() || !roomData?.tableId) return;
+    try {
+      await apiFetch("/tables/" + roomData.tableId + "/chat", {
+        method: "POST",
+        body: JSON.stringify({ message: chatMsg })
+      });
+      setChatMsg("");
+      pollChat(roomData.tableId); // Fetch immediately
+    } catch (e) { toast(e.message, true); }
   };
 
   // ══════════════════════════════════════
