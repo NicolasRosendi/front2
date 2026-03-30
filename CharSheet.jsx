@@ -57,9 +57,13 @@ export default function CharSheet() {
     setSaving(false);
   }, [charId]);
 
-  const loaded = useRef(false);
+  // Auto-save: skip the FIRST render after load, save on all subsequent changes
+  const saveCount = useRef(0);
   useEffect(() => {
-    if (!charId || !loaded.current) return;
+    if (!charId) return;
+    saveCount.current++;
+    // Skip first 2 ticks after load (initial state + loaded data)
+    if (saveCount.current <= 2) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(doSave, 2000);
   }, [f,stats,hp,hpMax,hpTemp,profBonus,saveProf,skillProf,skillExp,attacks,inventory,spells,shieldBonus,deathSaves,inspiration]);
@@ -67,7 +71,7 @@ export default function CharSheet() {
   // Load
   useEffect(() => {
     if (!charId) return;
-    loaded.current = false;
+    saveCount.current = 0;
     setLoading(true);
     apiFetch("/characters/" + charId).then(d => {
       const c = d.character;
@@ -83,9 +87,36 @@ export default function CharSheet() {
       setDeathSaves(data.deathSaves || [false,false,false,false,false,false]);
       setInspiration(data.inspiration ?? false); setSpellKey(data.spellAbilityKey || "int");
       setLoading(false);
-      setTimeout(() => { loaded.current = true; }, 500);
     }).catch(e => { console.error(e); setLoading(false); });
   }, [charId]);
+
+  // Apply racial bonuses when race/subrace changes
+  const applyRacialBonuses = useCallback((race, subrace) => {
+    if (!RACIAL_BONUSES) return;
+    const key = (subrace && subrace.length > 0) ? subrace : race;
+    const bonuses = RACIAL_BONUSES[key] || RACIAL_BONUSES[race];
+    if (bonuses) {
+      setStats(prev => {
+        const next = { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 };
+        Object.keys(bonuses).forEach(s => { next[s] = 10 + bonuses[s]; });
+        return next;
+      });
+      const names = {str:"FUE",dex:"DES",con:"CON",int:"INT",wis:"SAB",cha:"CAR"};
+      const desc = Object.keys(bonuses).map(s => names[s] + " +" + bonuses[s]).join(", ");
+      toast("Bonificaciones: " + desc);
+    }
+  }, [toast]);
+
+  const onRaceChange = (race) => {
+    sf("race", race);
+    sf("subrace", ""); // Reset subrace
+    applyRacialBonuses(race, "");
+  };
+
+  const onSubraceChange = (subrace) => {
+    sf("subrace", subrace);
+    applyRacialBonuses(f.race, subrace);
+  };
 
   // Class change
   const onClassChange = (cls) => {
@@ -162,8 +193,8 @@ export default function CharSheet() {
           <div className="id-grid">
             <div className="id-f"><span className="id-l">Clase</span><InlineSelect value={f.class} onChange={onClassChange} options={CLASS_NAMES} placeholder="— Clase —" /></div>
             <div className="id-f"><span className="id-l">Nivel</span><InlineField value={f.level} onChange={v=>sf("level",String(clamp(+v,1,20)))} type="number" min={1} max={20} /></div>
-            <div className="id-f"><span className="id-l">Raza</span><InlineSelect value={f.race} onChange={v=>sf("race",v)} options={RACE_NAMES} placeholder="— Raza —" /></div>
-            {getSubraces().length > 0 && <div className="id-f"><span className="id-l">Subraza</span><InlineSelect value={f.subrace} onChange={v=>sf("subrace",v)} options={getSubraces()} /></div>}
+            <div className="id-f"><span className="id-l">Raza</span><InlineSelect value={f.race} onChange={onRaceChange} options={RACE_NAMES} placeholder="— Raza —" /></div>
+            {getSubraces().length > 0 && <div className="id-f"><span className="id-l">Subraza</span><InlineSelect value={f.subrace} onChange={onSubraceChange} options={getSubraces()} /></div>}
             {getSubclasses().length > 0 && <div className="id-f"><span className="id-l">Subclase</span><InlineSelect value={f.subclass} onChange={v=>sf("subclass",v)} options={getSubclasses()} /></div>}
             {f.class==="Brujo"&&parseInt(f.level)>=3 && <div className="id-f"><span className="id-l">Pacto</span><InlineSelect value={f.pactBoon} onChange={v=>sf("pactBoon",v)} options={["Pacto del Tomo","Pacto de la Hoja","Pacto de la Cadena"]} /></div>}
             <div className="id-f"><span className="id-l">Transfondo</span><InlineField value={f.background} onChange={v=>sf("background",v)} /></div>
