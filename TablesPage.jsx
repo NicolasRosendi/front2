@@ -476,13 +476,14 @@ export default function TablesPage() {
       { isCrit: pendingAttack.isCrit }
     );
 
-    // Llamar al backend con el daño
+    // Enviar daño real al backend via manual-damage
     try {
-      const res = await apiFetch("/tables/" + roomData.tableId + "/combat/attack", {
+      const res = await apiFetch("/tables/" + roomData.tableId + "/combat/manual-damage", {
         method: "POST",
         body: JSON.stringify({
           defender_character_id: target.character_id,
-          attack_index: pendingAttack.weapons?.indexOf(weapon) || 0,
+          damage: rollResult.total,
+          description: `${weapon.name}: [${rollResult.rolls.join(",")}]${rollResult.modifier ? (rollResult.modifier > 0 ? "+" : "") + rollResult.modifier : ""}${pendingAttack.isCrit ? " CRIT" : ""}`,
         }),
       });
 
@@ -491,10 +492,10 @@ export default function TablesPage() {
         addLog("Sistema", `🏆 ¡${res.winner} gana el combate!`);
         setCombatPhase(null);
       } else {
+        toast(`${target.character_name}: ${res.defender_hp} HP restantes`);
         setCombatPhase("waiting");
       }
     } catch (e) {
-      // Si el backend maneja CA y rechaza, igual avanzamos turno
       toast(e.message, true);
     }
 
