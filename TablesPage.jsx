@@ -210,8 +210,7 @@ export default function TablesPage() {
   const [chatMsg, setChatMsg] = useState("");
   const [chatHistory, setChatHistory] = useState([]);
   const [combatPhase, setCombatPhase] = useState(null);
-  // Fases: null | "initiative" | "pick_target" | "roll_attack" | "roll_damage" | "saving_throw" | "waiting"
-  const [initiativeRolled, setInitiativeRolled] = useState(false);
+  // Fases: null | "pick_target" | "roll_attack" | "roll_damage" | "saving_throw" | "waiting"
   const [pendingAttack, setPendingAttack] = useState(null); // { target, weapon, attackResult }
   const [pendingSavingThrow, setPendingSavingThrow] = useState(null); // { stat, dc, attackerInfo }
   const [myUserId, setMyUserId] = useState(null);
@@ -278,22 +277,24 @@ export default function TablesPage() {
           const wasInCombat = r.table?.status === "combat";
           const nowInCombat = fresh.table?.status === "combat";
 
-          // Detección de inicio de combate
-          if (!wasInCombat && nowInCombat) {
-            sendNotification("⚔ Combate iniciado", "¡El combate ha comenzado en " + fresh.table.name + "!");
-            toast("⚔ ¡Combate iniciado!");
-            setCombatPhase("initiative");
-          }
-
-          // Detección de cambio de turno
-          if (nowInCombat && (prevTurn !== newTurn || prevRound !== newRound)) {
+          // Detección de inicio de combate o cambio de turno
+          if (nowInCombat) {
             const currentPlayer = fresh.combat?.turn_order?.[newTurn];
-            if (currentPlayer?.user_id === myUserId) {
-              sendNotification("🎲 ¡Es tu turno!", "Ronda " + newRound + " — ¡Te toca a vos!");
-              toast("🎲 ¡Es tu turno!");
-              setCombatPhase("pick_target");
-            } else {
-              setCombatPhase("waiting");
+            const isMe = currentPlayer?.user_id === myUserId;
+
+            if (!wasInCombat) {
+              sendNotification("⚔ Combate iniciado", "¡El combate ha comenzado en " + fresh.table.name + "!");
+              toast("⚔ ¡Combate iniciado!");
+              setCombatPhase(isMe ? "pick_target" : "waiting");
+            } else if (prevTurn !== newTurn || prevRound !== newRound) {
+              if (isMe) {
+                sendNotification("🎲 ¡Es tu turno!", "Ronda " + (newRound || 1));
+                toast("🎲 ¡Es tu turno!");
+                setCombatPhase("pick_target");
+                setPendingAttack(null);
+              } else {
+                setCombatPhase("waiting");
+              }
             }
           }
 
@@ -322,7 +323,6 @@ export default function TablesPage() {
       setCombatPhase(null);
       setPendingAttack(null);
       setPendingSavingThrow(null);
-      setInitiativeRolled(false);
 
       // Detectar si ya estoy en combate
       if (d.table?.status === "combat") {
@@ -396,26 +396,10 @@ export default function TablesPage() {
   const startCombat = async () => {
     try {
       await apiFetch("/tables/" + roomData.tableId + "/combat/start", { method: "POST" });
-      toast("⚔ ¡Combate iniciado!");
-      sendNotification("⚔ Combate iniciado", "El DM inició el combate. ¡Tirá tu iniciativa!");
-      setCombatPhase("initiative");
-      setInitiativeRolled(false);
-      addLog("Sistema", "⚔ ¡Combate iniciado! Cada jugador debe tirar su iniciativa.");
-    } catch (e) { toast(e.message, true); }
-  };
-
-  // ── Tirar iniciativa manual ──
-  const handleInitiativeRoll = async (rollResult) => {
-    const initiative = rollResult.total;
-    showRoll({ ...rollResult, label: "🎯 Iniciativa", subtitle: `Total: ${initiative}` });
-    addLog("Vos", `🎯 Iniciativa: ${initiative}`, `[${rollResult.rolls.join(", ")}]${rollResult.modifier ? (rollResult.modifier > 0 ? "+" : "") + rollResult.modifier : ""}`);
-
-    try {
-      // Usamos el endpoint de pass temporalmente para registrar, en un caso real
-      // habría un endpoint /combat/initiative. Por ahora guardamos en log y esperamos.
-      setInitiativeRolled(true);
+      toast("⚔ ¡Combate iniciado! Iniciativa automática.");
+      addLog("Sistema", "⚔ ¡Combate iniciado! Iniciativa tirada automáticamente.");
+      // El polling detectará quién va primero
       setCombatPhase("waiting");
-      toast(`Iniciativa ${initiative} registrada. Esperando al DM...`);
     } catch (e) { toast(e.message, true); }
   };
 
@@ -701,22 +685,8 @@ export default function TablesPage() {
                FASES DE COMBATE
           ══════════════════════════════ */}
 
-          {/* FASE: Tirar iniciativa */}
-          {inCombat && combatPhase === "initiative" && !initiativeRolled && (
-            <div className="card combat-action-card">
-              <div className="sec-title">🎯 Tirá tu Iniciativa</div>
-              <p className="combat-hint">Tirá 1d20 + tu modificador de Destreza</p>
-              <CombatDiceRoller
-                label="🎯 Iniciativa"
-                defaultSides={20}
-                defaultMod={myPlayer?.character_data?.stats ? Math.floor((myPlayer.character_data.stats.dex - 10) / 2) : 0}
-                onResult={handleInitiativeRoll}
-              />
-            </div>
-          )}
-
           {/* FASE: Esperando (no es mi turno) */}
-          {inCombat && (combatPhase === "waiting" || (!isMyTurn && combatPhase !== "initiative")) && (
+          {inCombat && (combatPhase === "waiting" || !isMyTurn) && (
             <div className="card combat-waiting">
               <div className="waiting-icon">⏳</div>
               <div className="waiting-text">
