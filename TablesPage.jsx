@@ -403,31 +403,101 @@ export default function TablesPage() {
     } catch (e) { toast(e.message, true); }
   };
 
-  // ── Elegir objetivo ──
+  // ── Helpers de clase ──
+  const getMyCharData = () => {
+    const myChar = roomData?.players?.find(p => p.user_id === myUserId);
+    return myChar?.character_data || {};
+  };
+
+  const hasExtraAttack = () => {
+    const data = getMyCharData();
+    const cls = data.textFields?.class || "";
+    const level = parseInt(data.textFields?.level) || 1;
+    // Clases con Ataque Extra y nivel mínimo
+    const extraAttackClasses = {
+      "Bárbaro": 5, "Guerrero": 5, "Monje": 5, "Paladín": 5, "Explorador": 5
+    };
+    return level >= (extraAttackClasses[cls] || 99);
+  };
+
+  const getExtraAttackCount = () => {
+    const data = getMyCharData();
+    const cls = data.textFields?.class || "";
+    const level = parseInt(data.textFields?.level) || 1;
+    if (cls === "Guerrero") {
+      if (level >= 20) return 4;
+      if (level >= 11) return 3;
+      if (level >= 5) return 2;
+    }
+    if (["Bárbaro","Monje","Paladín","Explorador"].includes(cls) && level >= 5) return 2;
+    return 1;
+  };
+
+  const getMySpellDC = () => {
+    const data = getMyCharData();
+    const keyMap = {Bardo:"cha",Brujo:"cha",Clérigo:"wis",Druida:"wis",Explorador:"wis",Hechicero:"cha",Mago:"int",Paladín:"cha"};
+    const cls = data.textFields?.class || "";
+    const statKey = keyMap[cls] || "int";
+    const statVal = data.stats?.[statKey] || 10;
+    const abilMod = Math.floor((statVal - 10) / 2);
+    const prof = data.profBonus || 2;
+    return 8 + abilMod + prof;
+  };
+
+  const getMySpellAtkBonus = () => {
+    const data = getMyCharData();
+    const keyMap = {Bardo:"cha",Brujo:"cha",Clérigo:"wis",Druida:"wis",Explorador:"wis",Hechicero:"cha",Mago:"int",Paladín:"cha"};
+    const cls = data.textFields?.class || "";
+    const statKey = keyMap[cls] || "int";
+    const statVal = data.stats?.[statKey] || 10;
+    return Math.floor((statVal - 10) / 2) + (data.profBonus || 2);
+  };
+
+  // ── Elegir objetivo → luego elegir acción ──
   const handlePickTarget = (player) => {
-    const myChar = roomData.players?.find(p => p.user_id === myUserId);
-    const attacks = myChar?.character_data?.attacks || [];
-    setPendingAttack({ target: player, weapons: attacks, weapon: attacks[0] || { name: "Ataque", bonus: "+0", damage: "1d4" } });
+    setPendingAttack({ target: player, attacksRemaining: getExtraAttackCount(), totalAttacks: getExtraAttackCount() });
+    setCombatPhase("choose_action");
+  };
+
+  // ── Elegir arma ──
+  const chooseWeaponAttack = () => {
+    const attacks = getMyCharData().attacks || [];
+    setPendingAttack(prev => ({
+      ...prev,
+      actionType: "weapon",
+      weapons: attacks,
+      weapon: attacks[0] || { name: "Ataque", bonus: "+0", damage: "1d4" }
+    }));
     setCombatPhase("roll_attack");
   };
 
-  // ── Tirada de ataque ──
+  // ── Elegir conjuro ──
+  const chooseSpellAttack = () => {
+    setPendingAttack(prev => ({ ...prev, actionType: "spell" }));
+    setCombatPhase("choose_spell");
+  };
+
+  // ── Tirada de ataque (con chequeo de CA) ──
   const handleAttackRoll = async (rollResult) => {
     const weapon = pendingAttack.weapon;
-    const attackBonus = parseInt(weapon.bonus) || 0;
-    const total = rollResult.rolls[0] + attackBonus; // usar el dado sin el mod (ya viene en result.total)
     const isCrit = rollResult.isCrit;
     const isFail = rollResult.isFail;
+    const targetData = pendingAttack.target.character_data || {};
+    const targetAC = parseInt(targetData.textFields?.armorCA || targetData.ac) || 10;
+    const shieldB = targetData.shieldBonus || 0;
+    const totalAC = targetAC + shieldB;
 
     showRoll({
       ...rollResult,
       label: `⚔ Ataque con ${weapon.name}`,
-      subtitle: `vs ${pendingAttack.target.character_name}`,
+      subtitle: `vs ${pendingAttack.target.character_name} (CA ${totalAC})`,
     });
-    addLog(
-      "Vos",
-      `⚔ Ataque con ${weapon.name} vs ${pendingAttack.target.character_name}: ${rollResult.total}`,
-      `[${rollResult.rolls.join(", ")}]${rollResult.modifier ? (rollResult.modifier > 0 ? "+" : "") + rollResult.modifier : ""}${isCrit ? " ¡CRÍTICO!" : isFail ? " ¡PIFIA!" : ""}`,
+
+    const hits = isCrit || (!isFail && rollResult.total >= totalAC);
+
+    addLog("Vos",
+      `⚔ ${weapon.name} vs ${pendingAttack.target.character_name}: ${rollResult.total} vs CA ${totalAC} → ${hits ? (isCrit ? "¡CRÍTICO!" : "¡IMPACTA!") : (isFail ? "¡PIFIA!" : "FALLA")}`,
+      `[${rollResult.rolls.join(", ")}]${rollResult.modifier ? (rollResult.modifier > 0 ? "+" : "") + rollResult.modifier : ""}`,
       { isCrit, isFail }
     );
 
@@ -438,7 +508,22 @@ export default function TablesPage() {
       return;
     }
 
-    // Guardamos resultado de ataque, esperamos ver si impacta (el defensor verá su CA)
+    if (!hits) {
+      toast(`Falla — CA ${totalAC} es mayor que ${rollResult.total}`);
+      // Si tiene ataques extra restantes, dejar atacar de nuevo
+      const remaining = (pendingAttack.attacksRemaining || 1) - 1;
+      if (remaining > 0) {
+        toast(`Te quedan ${remaining} ataque(s) extra`);
+        setPendingAttack(prev => ({ ...prev, attacksRemaining: remaining }));
+        setCombatPhase("choose_action");
+      } else {
+        setPendingAttack(null);
+        await passTurn();
+      }
+      return;
+    }
+
+    // Impacta → tirar daño
     setPendingAttack(prev => ({ ...prev, attackResult: rollResult, isCrit }));
     setCombatPhase("roll_damage");
   };
@@ -483,7 +568,59 @@ export default function TablesPage() {
       toast(e.message, true);
     }
 
+    // Ataques extra
+    const remaining = (pendingAttack.attacksRemaining || 1) - 1;
+    if (remaining > 0 && !res?.combat_ended) {
+      toast(`Te quedan ${remaining} ataque(s) extra`);
+      setPendingAttack(prev => ({ ...prev, attacksRemaining: remaining, attackResult: null, isCrit: false }));
+      setCombatPhase("choose_action");
+    } else {
+      setPendingAttack(null);
+    }
+  };
+
+  // ── Lanzar conjuro (tirada de salvación al defensor) ──
+  const [pendingSpell, setPendingSpell] = useState(null);
+
+  const handleCastSpell = (spellName, saveStat, damageFormula, halfOnSave) => {
+    const dc = getMySpellDC();
+    setPendingSpell({ name: spellName, saveStat, damageFormula, halfOnSave, dc });
+    setPendingAttack(prev => ({ ...prev, spell: { name: spellName, saveStat, damageFormula, halfOnSave, dc } }));
+    // Pedir salvación al target
+    setCombatPhase("cast_spell_damage");
+    addLog("Vos", `✨ Lanza ${spellName} (CD ${dc} ${saveStat?.toUpperCase()}) → ${pendingAttack?.target?.character_name}`);
+  };
+
+  const handleSpellDamageRoll = async (rollResult) => {
+    const target = pendingAttack.target;
+    const spell = pendingAttack.spell;
+
+    showRoll({
+      ...rollResult,
+      label: `✨ ${spell.name}`,
+      subtitle: `→ ${target.character_name} · CD ${spell.dc} ${spell.saveStat?.toUpperCase()}`,
+    });
+
+    // Enviar daño al backend
+    try {
+      const res = await apiFetch("/tables/" + roomData.tableId + "/combat/manual-damage", {
+        method: "POST",
+        body: JSON.stringify({
+          defender_character_id: target.character_id,
+          damage: rollResult.total,
+          description: `${spell.name}: [${rollResult.rolls.join(",")}] (CD ${spell.dc} ${spell.saveStat?.toUpperCase()}, ${spell.halfOnSave ? "½ en éxito" : "0 en éxito"})`,
+        }),
+      });
+      if (res.combat_ended) {
+        toast(`🏆 ¡${res.winner} gana el combate!`);
+        setCombatPhase(null);
+      } else {
+        toast(`${target.character_name}: ${res.defender_hp} HP`);
+        setCombatPhase("waiting");
+      }
+    } catch (e) { toast(e.message, true); }
     setPendingAttack(null);
+    setPendingSpell(null);
   };
 
   // ── Tirada de salvación (forzada al defensor) ──
@@ -699,12 +836,90 @@ export default function TablesPage() {
           {inCombat && isMyTurn && combatPhase === "pick_target" && (
             <div className="card combat-action-card">
               <div className="sec-title">⚔ Elegí tu objetivo</div>
-              {otherPlayers.map((p, i) => (
-                <button key={i} className="target-btn" onClick={() => handlePickTarget(p)}>
-                  🎯 {p.character_name} — {p.character_data?.hpCurr ?? "?"}/{p.character_data?.hpMax ?? "?"} HP
-                </button>
-              ))}
+              {otherPlayers.map((p, i) => {
+                const td = p.character_data || {};
+                const pAC = parseInt(td.textFields?.armorCA || td.ac) || 10;
+                const pShield = td.shieldBonus || 0;
+                return (
+                  <button key={i} className="target-btn" onClick={() => handlePickTarget(p)}>
+                    🎯 {p.character_name} — {td.hpCurr ?? "?"}/{td.hpMax ?? "?"} HP · CA {pAC + pShield}
+                  </button>
+                );
+              })}
               <button className="btn-ghost full mt" onClick={passTurn}>⏭ Pasar turno</button>
+            </div>
+          )}
+
+          {/* FASE: Elegir tipo de acción */}
+          {inCombat && isMyTurn && combatPhase === "choose_action" && pendingAttack && (
+            <div className="card combat-action-card">
+              <div className="sec-title">¿Qué hacés?</div>
+              <p className="combat-hint">
+                vs {pendingAttack.target.character_name}
+                {pendingAttack.totalAttacks > 1 && ` · Ataque ${pendingAttack.totalAttacks - pendingAttack.attacksRemaining + 1}/${pendingAttack.totalAttacks}`}
+              </p>
+              <button className="target-btn" onClick={chooseWeaponAttack}>⚔ Atacar con arma</button>
+              <button className="target-btn" onClick={chooseSpellAttack}>✨ Lanzar conjuro</button>
+              <button className="btn-ghost full mt" onClick={() => { setPendingAttack(null); setCombatPhase("pick_target"); }}>← Cambiar objetivo</button>
+            </div>
+          )}
+
+          {/* FASE: Elegir conjuro */}
+          {inCombat && isMyTurn && combatPhase === "choose_spell" && pendingAttack && (() => {
+            const data = getMyCharData();
+            const spells = data.spells || {};
+            const knownSpells = [];
+            for (let lvl = 0; lvl <= 9; lvl++) {
+              const d = spells[lvl];
+              if (d?.list) d.list.forEach(name => {
+                if (name?.trim()) knownSpells.push({ name, level: lvl, hasSlot: lvl === 0 || (d.slots - (d.used || 0)) > 0 });
+              });
+            }
+            return (
+              <div className="card combat-action-card">
+                <div className="sec-title">✨ Elegí un Conjuro</div>
+                <p className="combat-hint">CD de conjuro: {getMySpellDC()} · Bonus ataque: +{getMySpellAtkBonus()}</p>
+                {knownSpells.length === 0 && <p className="combat-hint">No tenés conjuros. Agregá conjuros en tu ficha.</p>}
+                {knownSpells.map((sp, i) => (
+                  <button key={i} className={"target-btn" + (!sp.hasSlot && sp.level > 0 ? " disabled" : "")}
+                    disabled={!sp.hasSlot && sp.level > 0}
+                    onClick={() => setCombatPhase("spell_config")}
+                    onClickCapture={() => setPendingAttack(prev => ({ ...prev, selectedSpell: sp }))}>
+                    {sp.level === 0 ? "⭐" : `Nv${sp.level}`} {sp.name} {!sp.hasSlot && sp.level > 0 ? "(sin espacios)" : ""}
+                  </button>
+                ))}
+                <button className="btn-ghost full mt" onClick={() => setCombatPhase("choose_action")}>← Volver</button>
+              </div>
+            );
+          })()}
+
+          {/* FASE: Configurar conjuro (stat salvación, daño) */}
+          {inCombat && isMyTurn && combatPhase === "spell_config" && pendingAttack?.selectedSpell && (
+            <div className="card combat-action-card">
+              <div className="sec-title">✨ {pendingAttack.selectedSpell.name}</div>
+              <p className="combat-hint">CD: {getMySpellDC()} · Elegí la stat de salvación del rival</p>
+              <div className="spell-save-grid">
+                {["str","dex","con","int","wis","cha"].map(s => (
+                  <button key={s} className="dice-mode-btn" onClick={() => {
+                    handleCastSpell(pendingAttack.selectedSpell.name, s, null, true);
+                  }}>{({str:"FUE",dex:"DES",con:"CON",int:"INT",wis:"SAB",cha:"CAR"})[s]}</button>
+                ))}
+              </div>
+              <button className="btn-ghost full mt" onClick={() => setCombatPhase("choose_spell")}>← Volver</button>
+            </div>
+          )}
+
+          {/* FASE: Tirar daño del conjuro */}
+          {inCombat && isMyTurn && combatPhase === "cast_spell_damage" && pendingAttack?.spell && (
+            <div className="card combat-action-card">
+              <div className="sec-title">✨ Daño de {pendingAttack.spell.name}</div>
+              <p className="combat-hint">
+                → {pendingAttack.target.character_name} · Salvación {pendingAttack.spell.saveStat?.toUpperCase()} CD {pendingAttack.spell.dc}
+              </p>
+              <CombatDiceRoller
+                label={`✨ Daño de ${pendingAttack.spell.name}`}
+                onResult={handleSpellDamageRoll}
+              />
             </div>
           )}
 
@@ -712,7 +927,13 @@ export default function TablesPage() {
           {inCombat && isMyTurn && combatPhase === "roll_attack" && pendingAttack && (
             <div className="card combat-action-card">
               <div className="sec-title">🎲 Tirá tu Ataque</div>
-              <p className="combat-hint">vs {pendingAttack.target.character_name}</p>
+              <p className="combat-hint">
+                vs {pendingAttack.target.character_name} (CA {(() => {
+                  const td = pendingAttack.target.character_data || {};
+                  return (parseInt(td.textFields?.armorCA || td.ac) || 10) + (td.shieldBonus || 0);
+                })()})
+                {pendingAttack.totalAttacks > 1 && ` · Ataque ${pendingAttack.totalAttacks - pendingAttack.attacksRemaining + 1}/${pendingAttack.totalAttacks}`}
+              </p>
 
               {pendingAttack.weapons?.length > 1 && (
                 <div className="weapon-select">
@@ -737,7 +958,7 @@ export default function TablesPage() {
                 defaultMod={parseInt(pendingAttack.weapon?.bonus) || 0}
                 onResult={handleAttackRoll}
               />
-              <button className="btn-ghost full mt" onClick={() => { setPendingAttack(null); setCombatPhase("pick_target"); }}>
+              <button className="btn-ghost full mt" onClick={() => { setPendingAttack(prev => ({...prev, actionType: null})); setCombatPhase("choose_action"); }}>
                 ← Volver
               </button>
             </div>
